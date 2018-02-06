@@ -1,0 +1,170 @@
+---
+title: |
+  | Capital Adequancy Arbitrage and Risk-taking
+  | Research proposal: 
+author: "Lucas Avezum"
+date: "02/02/2018"
+output:
+  pdf_document: default
+  html_document: default
+bibliography: bibliography/references.bib
+---
+
+```{r install, eval = FALSE, include=FALSE}
+
+## This code will not be evaluated automatically.
+## (Notice the eval = FALSE declaration in the options section of the
+## code chunk)
+
+my_packages <- c("tidyverse", "broom", "coefplot", "cowplot",
+                 "gapminder", "GGally", "ggrepel", "ggridges",
+                 "gridExtra","here", "interplot", "margins", "maps",
+                 "mapproj","mapdata", "MASS", "quantreg", "rlang",
+                 "scales","survey", "srvyr", "viridis", "viridisLite",
+                 "devtools","xlsx")
+
+install.packages(my_packages, repos = "http://cran.rstudio.com")
+
+```
+
+
+
+```{r setup, include=FALSE}
+## Project set up 
+
+## By defult, show code for all chunks in the knitted document,
+## as well as the output. To override for a particular chunk
+## use echo = FALSE in its options.
+knitr::opts_chunk$set(echo = TRUE) 
+
+## Set the default size of figures
+knitr::opts_chunk$set(fig.width=8, fig.height=5)  
+
+## Load the libraries we will be using
+library(here)
+library(socviz)
+library(tidyverse)
+library(reshape2)
+
+
+```
+
+```{r load, include=FALSE}
+## Load data 
+## Load dictionaries
+## Load data
+credit_2017 <- read.csv("D:/Financial/EBA-transparency_exercise/2017/tr_cre.csv")
+
+```
+
+```{r risk_calculation, include=FALSE}
+
+## Select variables
+variables <- c(1720522,1720532,1720512,1720542)
+exposure_2017 <- subset(credit_2017, select = 1:13, 
+                        subset = credit_2017$Item %in% variables & 
+                          credit_2017$Exposure %in% 303)
+
+## Drop footnotes
+exposure_2017 <- exposure_2017[,1:12]
+
+## Split Item variables in exposures variables
+exposure_2017 <- dcast(exposure_2017, LEI_Code + NSA + Period + Portfolio + Country + Country_rank ~ Item)
+
+## Rename variables
+exposure_2017 <- plyr::rename(exposure_2017,c("1720522"="Exposure","1720532"="Risk_exposure","1720512"="Exposure_default","1720542"="Risk_exposure_default"))
+
+## Remove defaulted exposures from IRB exposures 
+exposure_2017 <- mutate(exposure_2017,Exposure_adj = ifelse(is.na(Exposure_default),Exposure,Exposure-Exposure_default))
+
+exposure_2017 <- mutate(exposure_2017,Risk_exposure_adj = ifelse(is.na(Risk_exposure_default),Risk_exposure,Risk_exposure-Risk_exposure_default))
+
+## Create Risk weight variable
+exposure_2017 <- mutate(exposure_2017,Risk_weight = Risk_exposure_adj/Exposure_adj)
+
+```
+```{r cleaning, include=FALSE}
+
+## Keep only obs. per exposed country
+exposure_2017 <- exposure_2017[exposure_2017$Country>0,]
+
+## Remove negative risk weights
+exposure_2017 <- exposure_2017[complete.cases(exposure_2017$Risk_weight),]
+exposure_2017 <- exposure_2017[exposure_2017$Risk_weight>0,]
+
+## Create risk calculation method factor
+exposure_2017 <- mutate(exposure_2017,Approach = factor(ifelse(Portfolio==1,"SA","IRB")))
+
+```
+# Introduction
+The Basel II framework introduced the possibility of banks to use, upon approval by the supervisory agency, internal risk models (internal rating-based or IRB) to calculte the risk-weights used for capital adequacy ratio. The argument in favor of IRB versus the fixed risk weights standard approach (SA) is that the IRB approach would improve banks' efficiency as "banks optimize risk weights and better account for the specific risk of each asset" (@beltratti2016basel). @cucinelli2017credit also point to the risk models having improved with the IRB approach as those models have to be approved by regulators. \newline
+
+However, @dome2017comparability show that the location where banks are headquarted is a significant explanatory variable of risk-weights across european banks. Within the Basel II framework, those differences driven by location are unintended as they do not reflect heterogeneity in risk, but rather, point to regulatory arbitrage. In this recent literature on capital adequacy risk-weights, while some papers study the determinants of differences in risk-weights across banks (@dome2017comparability, @beltratti2016basel and @montes2016impact) others focus on the impact of the IRB versus the SA on lending. @behn2016procyclical found that, in response to an exogenous shock to credit risk, banks decrease more lending under the IRB approach relative to the SA. @behn2016limits show that banks underestimate risk for portfolios under the IRB while interest rate are higher, suggesting that banks are aware of the higher risks of those loans. \newline
+
+My proposal is to fill the gap between those two lines in the literature: study the impact on bank lending coming from _unintended_ differences in risk-weights across IRB portfolios of European banks. Following prior evidence (@behn2016limits, @efing2016arbitraging) I expect a risk-taking channel to be stronger for banks headquarted in more relaxed regulatory enviroment. 
+
+# Stylized facts
+The figure below shows the density function of risk weights for corporate exposures. While risk weights under the SA approach are concentrated around 100%, risk weights are more evenly distributed and concentrated at relatively lower values.
+
+```{r density, echo=FALSE}
+
+p <- ggplot(data = exposure_2017,
+            mapping = aes(x = Risk_weight, fill = Approach, color = Approach))
+p + geom_density(alpha = 0.3)
+```
+
+The next figures show the distributions of risk-weights for corporate exposures across headquarters and approaches (IRB and SA).
+
+```{r box_plot, echo=FALSE}
+
+p <- ggplot(data = exposure_2017,
+            mapping = aes(x = reorder(NSA, Risk_weight,FUN = median, na.rm=TRUE),
+                          y = Risk_weight))
+p + geom_boxplot() +
+    labs(x=NULL) +
+    coord_flip() +
+    facet_wrap(~ Approach,ncol = 2 )
+```
+
+# Data and empirical strategy
+
+For the bank-level information on risk-weigths and other regulatory variables we can use the EU-wide transparency exercises. Those dataset are public available. There are in total four exercises for two periods each (December, 2012; June, 2013; December, 2014; June, 2015; December, 2015; June, 2016; December,2016 and June 2017). 132 European banks are included in the last exercise and 64 in the first. Further bank level information can be merged from the Orbis dataset. \newline
+
+The empirical strategy relies on comparing exposures to the same destination country from banks with different degrees of regulatory risk weight 
+
+$Exposure_{i,c,t}=\beta_0(\hat{RW}^{SA}_{i,c,t}-RW^{IRB}_{i,c,t})+\beta_1NPL_{i,c,t}+\beta_2(\hat{RW}^{SA}_{i,c,t}-RW^{IRB}_{i,c,t})\times NPL_{i,c,t}+\alpha_{i,t}+\alpha_{c,t}+\varepsilon_{i,c,t}$, \newline
+
+$Exposure_{i,c,t}$ is the total asset of bank $i$ in country $c$ at time $t$. $NPL_{i,c,t}$ is the amount of defaulted exposure. $RW^{IRB}_{i,c,t}$ is the risk weight of an exposure under the IRB approach. $\hat{RW}^{SA}_{i,c,t}$ is the predicted value using the characteristics of $RW^{IRB}_{i,c,t}$ from the following regression:\newline
+
+$RW^{SA}_{i,c,t}=\delta_0NPL_{i,c,t}+\alpha_{i,t}+\alpha_{c,t}+\varepsilon_{i,c,t}$.\newline
+
+This variable is a proxy of what would be the risk weight under SA for an exposure that is actually calculated using the IRB approach. Hence, $\hat{RW}^{SA}_{i,c,t}-RW^{IRB}_{i,c,t}$ is our measure of regulatory risk weight strigency. Higher values indicate lower strigengy. 
+
+$\beta_2$ captures the risk-taking channel from regulatory arbitrage. 
+
+```{r box_plot_1, echo=FALSE, include=FALSE}
+
+p <- ggplot(data = subset(exposure_2017,subset = Portfolio == 1),
+            mapping = aes(x = reorder(NSA, Risk_weight,FUN = median, na.rm=TRUE),
+                          y = Risk_weight))
+p + geom_boxplot() +
+    labs(x=NULL) +
+    coord_flip()
+```
+
+
+```{r box_plot_2, echo=FALSE, include=FALSE}
+
+p <- ggplot(data = subset(exposure_2017,subset = Portfolio == 2),
+            mapping = aes(x = reorder(NSA, Risk_weight,FUN = median, na.rm=TRUE),
+                          y = Risk_weight))
+p + geom_boxplot() +
+    labs(x=NULL) +
+    coord_flip()
+```
+
+
+
+# References
+
+
