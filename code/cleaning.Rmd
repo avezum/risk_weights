@@ -21,7 +21,7 @@ my_packages <- c("tidyverse", "broom", "coefplot", "cowplot",
                  "gridExtra","here", "interplot", "margins", "maps",
                  "mapproj","mapdata", "MASS", "quantreg", "rlang",
                  "scales","survey", "srvyr", "viridis", "viridisLite",
-                 "devtools","xlsx")
+                 "devtools","xlsx","plm","stringr")
 
 install.packages(my_packages, repos = "http://cran.rstudio.com")
 
@@ -45,55 +45,70 @@ library(here)
 library(socviz)
 library(tidyverse)
 library(reshape2)
+library(stringr)
 
 
 ```
 
 ```{r load, include=FALSE}
-## Load data 
-## Load dictionaries
+## Clean list
+rm(list = ls())
+
 ## Load data
 credit_2017 <- read.csv("D:/Financial/EBA-transparency_exercise/2017/tr_cre.csv")
+credit_2016 <- read.csv("D:/Financial/EBA-transparency_exercise/2016/tr_cre.csv")
+credit_2015 <- read.csv("D:/Financial/EBA-transparency_exercise/2015/tr_cre.csv")
+## Drop variables not in common
+credit_2017[,c("footnote","Label")] <- NULL
+credit_2016[,c("footnote","Label")] <- NULL
+credit_2015[,c("footnote","Label")] <- NULL
+## Rename amount variable
+credit_2015 <- plyr::rename(credit_2015,c("AMOUNT"="Amount","LEI_code"="LEI_Code"))
+## Append
+credit <- rbind(credit_2017,credit_2016,credit_2015)
+## Drop original files
+rm(credit_2017,credit_2015,credit_2016)
 
 ```
 
 ```{r risk_calculation, include=FALSE}
 
 ## Select variables
-variables <- c(1720522,1720532,1720512,1720542)
-exposure_2017 <- subset(credit_2017, select = 1:13, 
-                        subset = credit_2017$Item %in% variables & 
-                          credit_2017$Exposure %in% 303)
+variables <- c("0522","0532","0512","0542")
+credit$Item <- sapply(credit$Item,toString)
+credit$Item_global <- sapply(credit$Item,str_sub,start= -4)
+credit$Item <- NULL
 
-## Drop footnotes
-exposure_2017 <- exposure_2017[,1:12]
+exposure.df <- subset(credit, select = 1:11, 
+                        subset = credit$Item_global %in% variables & 
+                          credit$Exposure %in% 303)
 
 ## Split Item variables in exposures variables
-exposure_2017 <- dcast(exposure_2017, LEI_Code + NSA + Period + Portfolio + Country + Country_rank ~ Item)
+exposure.df <- dcast(exposure.df, LEI_Code + NSA + Period + Portfolio + Country + Country_rank ~ Item_global, value.var="Amount")
 
 ## Rename variables
-exposure_2017 <- plyr::rename(exposure_2017,c("1720522"="Exposure","1720532"="Risk_exposure","1720512"="Exposure_default","1720542"="Risk_exposure_default"))
+exposure.df <- plyr::rename(exposure.df,c("0522"="Exposure","0532"="Risk_exposure","0512"="Exposure_default","0542"="Risk_exposure_default"))
 
 ## Remove defaulted exposures from IRB exposures 
-exposure_2017 <- mutate(exposure_2017,Exposure_adj = ifelse(is.na(Exposure_default),Exposure,Exposure-Exposure_default))
+exposure.df <- mutate(exposure.df,Exposure_adj = ifelse(is.na(Exposure_default),Exposure,Exposure-Exposure_default))
 
-exposure_2017 <- mutate(exposure_2017,Risk_exposure_adj = ifelse(is.na(Risk_exposure_default),Risk_exposure,Risk_exposure-Risk_exposure_default))
+exposure.df <- mutate(exposure.df,Risk_exposure_adj = ifelse(is.na(Risk_exposure_default),Risk_exposure,Risk_exposure-Risk_exposure_default))
 
 ## Create Risk weight variable
-exposure_2017 <- mutate(exposure_2017,Risk_weight = Risk_exposure_adj/Exposure_adj)
+exposure.df <- mutate(exposure.df,Risk_weight = Risk_exposure_adj/Exposure_adj)
 
 ```
 ```{r cleaning, include=FALSE}
 
 ## Keep only obs. per exposed country
-exposure_2017 <- exposure_2017[exposure_2017$Country>0,]
+exposure.df <- exposure.df[exposure.df$Country>0,]
 
 ## Remove negative risk weights
-exposure_2017 <- exposure_2017[complete.cases(exposure_2017$Risk_weight),]
-exposure_2017 <- exposure_2017[exposure_2017$Risk_weight>0,]
+exposure.df <- exposure.df[complete.cases(exposure.df$Risk_weight),]
+exposure.df <- exposure.df[exposure.df$Risk_weight>0,]
 
 ## Create risk calculation method factor
-exposure_2017 <- mutate(exposure_2017,Approach = factor(ifelse(Portfolio==1,"SA","IRB")))
+exposure.df <- mutate(exposure.df,Approach = factor(ifelse(Portfolio==1,"SA","IRB")))
 
 ```
 # Introduction
@@ -108,7 +123,7 @@ The figure below shows the density function of risk weights for corporate exposu
 
 ```{r density, echo=FALSE}
 
-p <- ggplot(data = exposure_2017,
+p <- ggplot(data = exposure.df,
             mapping = aes(x = Risk_weight, fill = Approach, color = Approach))
 p + geom_density(alpha = 0.3)
 ```
@@ -117,7 +132,7 @@ The next figures show the distributions of risk-weights for corporate exposures 
 
 ```{r box_plot, echo=FALSE}
 
-p <- ggplot(data = exposure_2017,
+p <- ggplot(data = exposure.df,
             mapping = aes(x = reorder(NSA, Risk_weight,FUN = median, na.rm=TRUE),
                           y = Risk_weight))
 p + geom_boxplot() +
@@ -142,9 +157,9 @@ This variable is a proxy of what would be the risk weight under SA for an exposu
 
 $\beta_2$ captures the risk-taking channel from regulatory arbitrage. 
 
-```{r box_plot_1, echo=FALSE, include=FALSE}
+```{r box_plot_1, echo=FALSE, include=TRUE}
 
-p <- ggplot(data = subset(exposure_2017,subset = Portfolio == 1),
+p <- ggplot(data = subset(exposure.df,subset = Portfolio == 1),
             mapping = aes(x = reorder(NSA, Risk_weight,FUN = median, na.rm=TRUE),
                           y = Risk_weight))
 p + geom_boxplot() +
@@ -153,9 +168,9 @@ p + geom_boxplot() +
 ```
 
 
-```{r box_plot_2, echo=FALSE, include=FALSE}
+```{r box_plot_2, echo=FALSE, include=TRUE}
 
-p <- ggplot(data = subset(exposure_2017,subset = Portfolio == 2),
+p <- ggplot(data = subset(exposure.df,subset = Portfolio == 2),
             mapping = aes(x = reorder(NSA, Risk_weight,FUN = median, na.rm=TRUE),
                           y = Risk_weight))
 p + geom_boxplot() +
@@ -163,6 +178,12 @@ p + geom_boxplot() +
     coord_flip()
 ```
 
+
+
+```{r reg,echo=FALSE, include=FALSE}
+test <- lm(Exposure~Risk_weight,data=exposure.df[exposure.df$Portfolio == 1,])
+test$coefficients
+```
 
 
 # References
