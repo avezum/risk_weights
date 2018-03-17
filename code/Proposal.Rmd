@@ -157,7 +157,7 @@ rm(exposure.df,credit,ID.df)
 # Motivation
 The Basel II framework introduced the possibility of banks to use, upon approval by the supervisory agency, internal risk models (internal rating-based or IRB) to calculte the risk-weights used for capital adequacy ratio. The argument in favor of IRB versus the fixed risk weights standard approach (SA) is that the IRB approach would improve banks' efficiency as "banks optimize risk weights and better account for the specific risk of each asset" (@beltratti2016basel). @cucinelli2017credit also point to the risk models having improved with the IRB approach as those models have to be approved by regulators. \newline
 
-The figure below shows the density function of risk weights for corporate exposures. While risk weights under the SA approach are concentrated around 100%, risk weights are more evenly distributed and concentrated at relatively lower values.
+The difference between the two approaches is significant. The figure below shows the density function of risk weights for corporate exposures. While risk weights under the SA approach are concentrated around 100%, risk weights are more evenly distributed and concentrated at relatively lower values. These differences are expected to reflect *intended* heterogeneity in risk across banks portfolios.The IRB approach would be a more efficient regulatory framework as it is flexible to each bank's risk exposure. \newline
 
 ```{r density_rw, echo=FALSE}
 
@@ -166,9 +166,7 @@ p <- ggplot(data = subset(exposure.id.df,subset = Risk_weight < 2),
 p + geom_density(alpha = 0.3)
 ```
 
-However, @dome2017comparability show that the location where banks are headquarted is a significant explanatory variable of risk-weights across european banks. Within the Basel II framework, those differences driven by location are unintended as they do not reflect heterogeneity in risk, but rather, point to regulatory arbitrage. In this recent literature on capital adequacy risk-weights, while some papers study the determinants of differences in risk-weights across banks (@dome2017comparability, @beltratti2016basel and @montes2016impact) others focus on the impact of the IRB versus the SA on lending. @behn2016procyclical found that, in response to an exogenous shock to credit risk, banks decrease more lending under the IRB approach relative to the SA. @behn2016limits show that banks underestimate risk for portfolios under the IRB while interest rate are higher, suggesting that banks are aware of the higher risks of those loans. \newline
-
-The next figures show the distributions of risk-weights for corporate exposures across headquarters and approaches (IRB and SA).
+However, @dome2017comparability show that the location where banks are headquarted is a significant explanatory variable of risk-weights across european banks. Within the Basel II framework, those differences driven by location are _unintended_ as they do not reflect heterogeneity in risk, but rather, point to regulatory arbitrage. The next figures show the distributions of risk-weights for corporate exposures across headquarters and approaches (IRB and SA). The distribution of risk-weights differs considerably across headquarters. @dome2017comparability show that these differences are still meaningfull for several european countries after controlling for riskiness and destination of exposure and other control variables. \newline
 
 ```{r box_plot, echo=FALSE}
 
@@ -180,12 +178,17 @@ p + geom_boxplot() +
     coord_flip() 
 ```
 
-My proposal is to fill the gap between those two lines in the literature: study the impact on bank lending coming from _unintended_ differences in risk-weights across IRB portfolios of European banks. Following prior evidence (@behn2016limits, @efing2016arbitraging) I expect a risk-taking channel to be stronger for banks headquarted in more relaxed regulatory enviroment. 
+In this recent literature on capital adequacy risk-weights, while some papers study the determinants of differences in risk-weights across banks (@dome2017comparability, @beltratti2016basel and @montes2016impact) others focus on the impact of the IRB versus the SA on lending. @behn2016procyclical found that, in response to an exogenous shock to credit risk, banks decrease more lending under the IRB approach relative to the SA. @behn2016limits show that banks underestimate risk for portfolios under the IRB while interest rate are higher, suggesting that banks are aware of the higher risks of those loans. \newline
+
+Our proposal is to fill the gap between those two lines in the literature: study the impact on bank lending coming from _unintended_ differences in risk-weights across IRB portfolios of European banks. We expect the following hypothesis to hold: 
 
 **Hypothesis 1** *Ceteris paribus, banks with lower risk-weights lend greater amounts of syndicated loans.*
 
+We expect regulatory arbitrage on risk-weights to have an unintended subsidy effect to banks headquarted on more relaxed supervision.
 
 **Hypothesis 2** *Ceteris paribus, the effect of lower risk-weights on lending is stronger for better capitalized banks.*
+
+We expect well capitalized banks to be the ones able to use regulatory arbitrage as a competition edge. Capital requirement is binding for stressed banks hence,  
 
 **Hypothesis 3** *Ceteris paribus, lower risk-weights increase banks risk appetite.*
 
@@ -193,7 +196,11 @@ My proposal is to fill the gap between those two lines in the literature: study 
 
 Regulatory information at the bank-level is publicly available with the EU-wide transparency exercises. Those datasets contain information on assets and risk-weighted assets which can be use to derive risk weights. The information on exposures is divided by type (retail, corporate, government) and country (location of borrower). There are in total four exercises which contain variables for two periods each (December, 2012; June, 2013; December, 2014; June, 2015; December, 2015; June, 2016; December,2016 and June 2017). 132 European banks are included in the last exercise increasing from 64 in the first. Further bank level information, such as, balance sheet and cash flows items, can be merged from the Orbis dataset. \newline
 
-Bank level information is not enough to draw meaningful comparisons. We need loan-level data, that allow us to compare the exposure of two banks with different risk-weights for the same loan. This loan-level analysis, with flavor of Mian and khwaja, allow us to separate loand demand from supply effects and meaninfully infer and effect of differences in risk weight. 
+Bank level information is not enough to draw meaningful comparisons. We need loan-level data with multiple observartions per borrower. Such dataset allow us to compare the exposure of several banks with different risk-weights for the same borrower. The loan-level analysis allow us to separate loand demand from supply effects and meaninfully infer the effect of differences in risk-weights on lending supply. \newline
+
+The LPC Dealscan dataset from Thomson Reuters provides the full information on syndicated loans. In these syndicated loans several banks contributes with a share of the loan to the same borrowers. However, this or similar loan-level data is still not available to researchers at Tilburg University. \newline
+
+We believe that this study will have a high impact on policy, as it will highlight adverse effects from the lack of policy coordination on bank capital regulation. We also expect other researches to benefit from the LPC Dealscan dataset as it is extensively used in finance and macroeconomic topics.  
 
 
 ```{r density_exp, echo=FALSE, include=FALSE}
