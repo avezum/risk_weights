@@ -1,0 +1,80 @@
+---
+title: "| Empirical Strategy: \n| Capital Adequacy Arbitrage and Bank Lending\n"
+author: "Lucas Avezum"
+date: "November 15, 2018"
+output:
+  pdf_document: default
+  html_document: default
+bibliography: bibliography/references.bib
+---
+
+```{r install, eval = FALSE, include=FALSE}
+## This code will not be evaluated automatically.
+## (Notice the eval = FALSE declaration in the options section of the
+## code chunk)
+
+my_packages <- c("tidyverse", "broom", "coefplot", "cowplot",
+                 "gapminder", "GGally", "ggrepel", "ggridges",
+                 "gridExtra","here", "interplot", "margins", "maps",
+                 "mapproj","mapdata", "MASS", "quantreg", "rlang",
+                 "scales","survey", "srvyr", "viridis", "viridisLite",
+                 "devtools","xlsx","plm","stringr","lfe","robustHD","DescTools","stargazer")
+
+install.packages(my_packages, repos = "http://cran.rstudio.com")
+```
+
+
+```{r setup, eval = FALSE, include=FALSE}
+## Project set up 
+
+## By defult, show code for all chunks in the knitted document,
+## as well as the output. To override for a particular chunk
+## use echo = FALSE in its options.
+knitr::opts_chunk$set(echo = TRUE) 
+
+## Set the default size of figures
+knitr::opts_chunk$set(fig.width=8, fig.height=5)  
+
+## Load the libraries we will be using
+library(here)
+library(socviz)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(xlsx)
+library(plm)
+library(lfe)
+library(DescTools)
+library(stargazer)
+
+```
+
+
+
+
+# Empirical model
+
+$log(volume_{b,f,c,t})=\beta\widehat{RW}_{b,t}+\alpha_{b,t}+\alpha_{f,t}+\varepsilon_{b,f,c,t}$ \newline
+
+$log(volume_{b,f,c,t})$ is the log volume of the amount lend by bank $b$ hosted in country $c$ to firm $f$ at time $t$. We can also see $f$ as indexing loans facility. $\alpha_{b,t}$ and $\alpha_{f,t}$ are time-varying bank and loan fixed effects. The variable of interest, $\widehat{RW}_{b,t}$, captures exogenous changes in risk-weight and it is obtained as the fitted value for the following first stage regression: \newline
+
+$RW_{b,t}=\gamma_0 IRB_{b,t}+\gamma_1 \overline{RW}_{-b,c,t}+\gamma_2Barth_{c,t}+\alpha_{b}+\alpha_{t}+\varepsilon_{b,t}$ \newline
+
+
+$RW_{b,t}$ is the risk-weight of exposures of bank $b$ at time $t$. For the years before IRB approval $RW_{b,t}$ takes the SA risk-weight. After approval we replace this variable by the IRB risk-weight. The first instrument is $IRB_{b,t}$ which is a dummy variable tha takes 1 for the periods after bank $b$ is allowed to calculate risk-weights using IRB models. The second instrument, $\overline{RW}_{-b,c,t}$ is the average risk-weight across all banks headquarted in country $c$, excluding bank $b$. $Barth_{c,t}$ is a vector of indices from Barth dataset on bank regulation. $\alpha_{b}$ and $\alpha_{t}$ are bank and time fixed effects.\newline
+
+**Hypothesis** *$\beta<0$: risk-weight arbitrage leads to competitive advantages.*
+
+# Empirical strategy
+
+$IRB_{b,t}$ instruments for the time variation in risk-weights as the approval date is exogenous to the bank. This instrument allow us to estimate the exogenous impact of changes in risk-weight on lending. However, it does not inform us about differences in supervisory standard. For this purpose, we include $\overline{RW}_{c,t}$ and $Barth_{c,t}$. Both measures try to capture the exogenous cross-section of the supervisory leniency/standard. Note, $\overline{RW}_{c,t}$ fails as a proxy for supervisory stardard in the extreme case that systematically banks within the same jurisdiction have the same risk preference.\newline
+
+
+Following our discussion, we could also try alternative measures. After approval, $RW_{b,t}$ can be calculated as the weighted average by exposure between SA and IRB risk-weights, as the effect should be stronger for banks with a larger share of their corporate portfolio under IRB (larger probability of loan being allocated in the IRB portfolio). Instead of a binary variable $IRB_{b,t}$ could take the initial share of the corporate portfolio that was approved to be calculated using IRB. This alteration would give us some cross-section variation, but it only make sense if we expect that the amount approved was constrained by the supervisory authority and not a bank's choice. We could replace $\overline{RW}_{c,t}$, by $\min{RW}_{c,t}$, that is, the minimum risk-weight observed among all banks in the same jurisdiction, as the measure of supervisory leniency. Lastly, $RW_{b,t}$ can be risk-sensitive. Limiting our analysis to loans where we have external rating information, we can estimate the effect of differences in risk-weight within a specific credit risk cluster (AAA, BB+, etc...). This modification helps us to rule out the possibility that the effect that we estimate is not driven by differences in portfolio risk (intended effect).\newline   
+
+
+# Data
+
+Loan information comes from the Loan Connector, banks' balance sheet information from Orbis/Bankscope. We are collecting from pillar-III reports the date of IRB approval for each bank (we already have for most European banks), risk-weight and exposure amount for IRB and SA portfolios (for corporate and total). For IRB we are also collecting for each bank the risk-weight distribution across credit rating/probability of default. 
+
+

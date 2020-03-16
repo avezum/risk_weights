@@ -1,0 +1,82 @@
+---
+title: "| Empirical Strategy: \n| Capital Adequacy Arbitrage and Bank Lending\n"
+author: "Lucas Avezum"
+date: "September 6, 2018"
+output:
+  pdf_document: default
+  html_document: default
+bibliography: bibliography/references.bib
+---
+
+```{r install, eval = FALSE, include=FALSE}
+## This code will not be evaluated automatically.
+## (Notice the eval = FALSE declaration in the options section of the
+## code chunk)
+
+my_packages <- c("tidyverse", "broom", "coefplot", "cowplot",
+                 "gapminder", "GGally", "ggrepel", "ggridges",
+                 "gridExtra","here", "interplot", "margins", "maps",
+                 "mapproj","mapdata", "MASS", "quantreg", "rlang",
+                 "scales","survey", "srvyr", "viridis", "viridisLite",
+                 "devtools","xlsx","plm","stringr","lfe","robustHD","DescTools","stargazer")
+
+install.packages(my_packages, repos = "http://cran.rstudio.com")
+```
+
+
+```{r setup, eval = FALSE, include=FALSE}
+## Project set up 
+
+## By defult, show code for all chunks in the knitted document,
+## as well as the output. To override for a particular chunk
+## use echo = FALSE in its options.
+knitr::opts_chunk$set(echo = TRUE) 
+
+## Set the default size of figures
+knitr::opts_chunk$set(fig.width=8, fig.height=5)  
+
+## Load the libraries we will be using
+library(here)
+library(socviz)
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(xlsx)
+library(plm)
+library(lfe)
+library(DescTools)
+library(stargazer)
+
+```
+
+# Objective and empirical strategy
+
+The goal of the research is to identify changes in lending volume due to risk-weights arbitrage. There are three challanges to consider in order to correctly identify the effects of arbitrage on lending. First, we need to disentangle supply from demand for credit. As usual, we compare the amount lent to one firm by different banks in the same loan deal by including loan fixed effects. The assumption is that firms do not have preference for which bank to borrow from. Second, observed risk-weights are not exogenous. Portfolio and capital adequacy ratio decisions are jointly determined. We instrument risk-weights by the IRB approval dates at bank level or Basel II adoption at the country level. The assumption is that IRB approval changes the amount lend only by the induced changes in risk-weights. \newline
+
+Finally, diffences in risk-weight mostly reflect differences in credit risk. Changes in lending that come from those differences are intended as banks with less riskier porftfolios can lend more for a given amount of capital. In order to capture arbitrage we instrument individuals banks risk-weights by the country average risk weight in which they are headquarted. The assumption is that supervisory authorities treat all supervised banks equally when evaluating their risk models. Still, the total credit risk profile of each bank might be corrolated within countries. For instance, if banks have a strong home bias and risk profile differs across countries. In this case we would be overestimating risk-weights arbitrage. The strategy here is to restrict the sample to the banks which we have the breakdown of risk-weight by location and type of borrower. Hence, we would be comparing differences in risk-weights that are specific to the location and type of borrower (corporate). In this specification, the only source of bias would be if banks from a given country are able to consistently pick borrowers by their riskiness for most other countries that they lend. For example, if low-risk borrowers in europe mostly borrow from german banks while the high-risk borrowers are left to home banks.         \newline
+
+
+# Empirical model
+
+Following the strategy describe in the previous section we would run the following model:\newline
+
+$log(volume_{i,j,c,t})=\beta\widehat{RW}_{i,c,t}+\alpha_{i,t}+\alpha_{j,t}+\varepsilon_{i,j,c,t}$ \newline
+
+$log(volume_{i,j,c,t})$ is the log volume of the amount lend to firm $j$ in country $c$ at time $t$ by bank $i$. We can also see $j$ as indexing loans deals. $alpha_{i,t}$ and $\alpha_{j,t}$ are time-varying bank and loan fixed effects. The variable of interest, $\widehat{RW}_{i,c,t}$, captures regulatory arbitrage and it is obtained as the fitted value for the following first stage regression: \newline
+
+$RW_{i,c,t}=\gamma IRB_{j,t}+\kappa \overline{RW}_{c,t}+\alpha_{i,t}+\alpha_{c,t}+\varepsilon_{i,c,t}$ \newline
+
+
+$RW_{i,c,t}$ is the risk-weight of exposures of bank $i$ in country $c$ at time $t$. Our first instrument is $IRB_{j,t}$ which is a dummy variable tha takes 1 for the periods after bank $i$ is allowed to calculate risk-weights using internal-rating based models. The second instrument, $\overline{RW}_{c,t}$ is the average risk-weight of exposures in country $c$ across all banks headquarted in same country as bank $i$. $alpha_{i,t}$ and $\alpha_{c,t}$ are time-varying bank and loan destination fixed effects.\newline
+
+**Hypothesis** *$\beta<0$: risk-weight arbitrage leads to competitive advantages.*
+
+We expect regulatory arbitrage on risk weights to create a competitive edge to banks headquarted in countries with more relaxed supervision (lower risk-weight for the same asset class). These advantages are unintended as they do not reflect differences in credit risk but differences in supervision standards. 
+
+# Data
+
+Loan information comes from the Loan Connector, banks' balance sheet information from Orbis/Bankscope and risk-weight from Orbis/Bankscope (total) and EBA transparency exercises (portfolio specific). We also already have data for when countries implemented Basel II [@cerutti2016changes]. I will start to collect information from banks' reports for individual banks' IRB approval. We could also try to contact previous researchers that have done similar data collection [@mariathasan2014manipulation; @ferri2017bank].
+
+
+
+# References

@@ -1,0 +1,450 @@
+---
+title: "Capital Adequacy Arbitrage and Bank Lending"
+author: "Lucas Avezum"
+date: "October 23, 2018"
+header-includes:
+   - \usepackage{bbm,dcolumn,transparent}
+output: 
+  beamer_presentation:
+    theme: "Frankfurt"
+    colortheme: "seahorse"
+  
+bibliography: ../bibliography/references.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = FALSE)
+
+rm(list = ls())
+getwd()
+knitr::opts_chunk$set(fig.width=8, fig.height=5)  
+
+## Load the libraries we will be using
+library(tidyverse)
+library(reshape2)
+library(stringr)
+library(plm)
+library(lfe)
+library(DescTools)
+library(stargazer)
+library(stringdist)
+library(grid)
+library(scales)
+library(data.table)
+
+load("../../Data/Dataset_clean.Rda")
+load("../../Data/EBA.Rda")
+
+```
+
+```{r data_graph, echo=FALSE}
+## Remove defaulted exposures from IRB exposures
+EBA.df$exposure <- NULL
+names(EBA.df) <- tolower(names(EBA.df))
+
+EBA.df <- mutate(EBA.df,
+                  exposure_adj = ifelse(is.na(exposure_default),exposure,exposure-exposure_default))
+
+EBA.df <- mutate(EBA.df,
+                  risk_exposure_adj = ifelse(is.na(risk_exposure_default),
+                                             risk_exposure,risk_exposure-risk_exposure_default))
+
+## Create Risk weight variable
+EBA.df <- mutate(EBA.df,risk_weight = risk_exposure_adj/exposure_adj)
+
+
+## Remove negative risk weights
+EBA.df  <- EBA.df [complete.cases(EBA.df$risk_weight),]
+EBA.df  <- EBA.df [EBA.df$risk_weight>0,]
+
+## Create risk calculation method factor
+EBA.df <- mutate(EBA.df,approach = factor(ifelse(portfolio==1,"SA","IRB")))
+```
+
+
+## Introduction
+
+**Hypothesis**: capital adequacy arbitrage creates competitive inequalities in the corporate lending market \newline
+
+Our goal:
+
+- Test if credit supply is sensitive to CAR risk-weights \newline
+
+- Disantangle intended from unintended differences in risk-weights and their effect on lending
+
+## Capital Adequacy Ratio and Risk-weights
+
+$CAR=\frac{K}{\sum_i\alpha_i  x_i}\geq k$ \newline
+
+$K$: equity capital \newline
+$x_i$: asset $i$ \newline
+$\alpha_i$: weight for asset $i$ \newline
+$k$: capital ratio requirement \newline
+
+
+## Risk-weights and Basel Accords
+
+Basel I (July 1988): \newline
+
+- Objectives: strengthen stability and remove competitive inequalities \newline
+
+- Sets fixed risk-weights within asset class \newline
+
+- Leverage ratio:
+$\frac{K}{\sum_ix_i}\geq k$ \newline
+
+Problem: portfolio reshuffling increases dispersion in probability of failure [@koehn1980regulation] 
+
+## Risk-weights and Basel Accords
+
+Basel II (2004):
+
+- Introduces the possibility to use internal-based rating (IRB) models to calculate risk-weights 
+
+$CAR=\frac{K}{\sum_i\alpha_i  x_i}\geq k$, \newline
+
+Reason: riskier banks will hold more capital [@kim1988risk] \newline
+
+Problems: 
+
+- Procyclical [@behn2016procyclical]
+- Manipulation [@mariathasan2014manipulation; @ferri2017bank;@behn2016limits]
+
+
+## Risk-weights manipulation: IRB vs SA
+
+```{r density_rw, echo=FALSE}
+
+p <- ggplot(data = subset(EBA.df,subset = risk_weight < 2),
+            mapping = aes(x = risk_weight, fill = approach, color = approach)) 
+p + geom_density(alpha = 0.3) + 
+  labs(x = "Risk-weight",
+         title = "Risk-weight density by method") +
+  theme_bw()
+```
+
+## Risk-weights and Basel Accords
+
+\transparent{0.4}Basel I (July 1988): \newline
+- Objectives: strengthen stability and \transparent{1}**remove competitive inequalities** \newline
+\transparent{0.4}- Sets fixed risk-weights within asset class \newline
+
+- Leverage ratio:
+$\frac{K}{\sum_ix_i}\geq k$, \newline
+
+Problem: portfolio reshuffling increases dispersion in probability of failure [@kim1988risk] 
+
+
+## Risk-weight manipulation across jurisdiction
+
+```{r box_plot_host, echo=FALSE}
+
+p <- ggplot(data = bank.df,
+            mapping = aes(x = reorder(nsa, risk_weight,FUN = median, na.rm=TRUE),
+                          y = risk_weight,fill=approach))
+p + geom_boxplot() +
+    labs(x=NULL) +
+    coord_flip() +
+  labs(
+       y =  "Risk-weight",
+         title = "Risk-weight distribution by lender's country and method") +
+  theme_bw()
+```
+
+## Risk-weight across borrower's country
+
+```{r box_plot_dest, echo=FALSE}
+
+p <- ggplot(data = subset(bank.df,subset = approach == "IRB"),
+            mapping = aes(x = reorder(iso_code, risk_weight,FUN = median, na.rm=TRUE),
+                          y = risk_weight,fill=approach))
+p + geom_boxplot() +
+    labs(x=NULL) +
+    coord_flip() +
+    labs(
+       y =  "Risk-weight",
+         title = "Risk-weight distribution by borrower's country") +
+  theme_bw()
+```
+
+## Risk-weight across borrower's and lender's country 
+
+```{r density_rw_countries, echo=FALSE}
+EBA_graph.df <- EBA.df %>%
+  subset(subset = nsa == "ES" | nsa == "DE") %>%
+  subset(subset = approach == "IRB") %>%
+  subset(iso_code == "DE" |iso_code == "ES" | iso_code == "FR"| iso_code == "GB")
+
+p <- ggplot(data = EBA_graph.df,
+            mapping = aes(x = risk_weight, fill = nsa, color = nsa)) 
+p + geom_density(alpha = 0.3) + 
+  labs(x = "Risk-weight",
+         title = "Risk-weight density for Spanish and German banks in four countries") +
+  facet_wrap(~ iso_code, ncol = 4)+
+  scale_x_continuous(limits = c(0, 1.1))+
+  theme_bw()
+```
+
+
+## Risk-weights and credit risk
+
+```{r rw_default, echo=FALSE}
+plot1 <- ggplot(data = subset(bank.df,subset = approach == "IRB"),
+            mapping = aes(x = default_rate,
+                          y=risk_weight))
+plot1 + geom_point() + geom_smooth(method = "lm") +
+  labs(x = "Default rate", y = "Risk-weight") +
+  theme_bw()
+
+```
+
+
+## Risk-weight and regulatory standard
+
+```{r rw_avgrw, echo=FALSE}
+plot1.df <- bank.df %>%
+  subset(subset = approach == "IRB") %>%
+  subset(mean.rw.host_dest> 0  )
+
+plot1 <- ggplot(plot1.df,mapping = aes(x = mean.rw.host_dest,
+                              y=risk_weight)) 
+plot1 + geom_point() + geom_smooth(method = "lm") +
+  labs(x = "Average risk-weight across host-destinations exposures", y = "Risk-weight") +
+  theme_bw()
+
+```
+
+
+
+## Empirical strategy
+
+**Hypothesis**: capital adequacy arbitrage creates competitive inequalities in the corporate lending market \newline
+
+First stage: \newline
+
+$RW_{i,c(l)}=\gamma_1Default_{i,c(l)}+\gamma_2\overline{RW}_{i,c(l)}+\alpha_{i}+\varepsilon_{i,c(l)}$ \newline
+
+Second stage: \newline
+
+$log(Loan_{i,l})=\beta\widehat{RW}_{i,c(l)}+\alpha_{l}+\alpha_{i}+\varepsilon_{i,l}$ \newline
+
+## Summary statistics
+
+```{r summary_loan,eval=TRUE, echo=FALSE, results='asis', warning=FALSE, message=FALSE}
+bank.df %>% 
+  subset(subset = approach == "IRB",
+         select = c("loan.amount","risk_weight","default_rate","ssm.dummy")) %>%
+  as.data.frame() %>%
+stargazer(header = FALSE, type="latex", single.row = TRUE, column.sep.width = "1pt", font.size = "footnotesize",
+          omit.summary.stat = c("p25","p75"),
+          covariate.labels = c("Loan amount (mn EUR)","Risk-weight","Default rate", "SSM"))
+``` 
+
+## Results 
+
+
+
+```{r hdfe,echo=FALSE}
+rw <- bank.df %>% 
+  subset(subset = approach == "IRB",
+         select = c("risk_weight")) 
+
+reg.hdfe1 <- felm(log(loan.amount)~ risk_weight | id +period|0|0,
+                 data = subset(bank.df ,subset = approach == "IRB" & loan.amount>0))
+robust.hdfe1 <- summary(reg.hdfe1,robust=TRUE)$coefficients[,2]
+sd.effect1 <- round(100*sd(rw$risk_weight)*(exp(1)^summary(reg.hdfe1,robust=TRUE)$coefficients[1,1]-1),1)
+
+reg.hdfe2 <- felm(log(loan.amount)~risk_weight  | tranche.id +id|0|0,
+                 data = subset(bank.df ,subset = approach == "IRB" & loan.amount>0))
+robust.hdfe2 <- summary(reg.hdfe2,robust=TRUE)$coefficients[,2]
+sd.effect2 <- round(100*sd(rw$risk_weight)*(exp(1)^summary(reg.hdfe2,robust=TRUE)$coefficients[1,1]-1),1)
+
+reg.hdfe3 <- felm(log(loan.amount)~ risk_weight +log(exposure) | tranche.id +id |0|0,
+                 data = subset(bank.df ,subset = approach == "IRB" & loan.amount>0))
+robust.hdfe3 <- summary(reg.hdfe3,robust=TRUE)$coefficients[,2]
+sd.effect3 <- round(100*sd(rw$risk_weight)*(exp(1)^summary(reg.hdfe3,robust=TRUE)$coefficients[1,1]-1),1)
+
+reg.hdfe4 <- felm(log(loan.amount)~ risk_weight  | tranche.id +id |0|0,
+                 data = subset(bank.df ,subset = approach == "SA" & loan.amount>0))
+robust.hdfe4 <- summary(reg.hdfe4,robust=TRUE)$coefficients[,2]
+sd.effect4 <- round(100*sd(rw$risk_weight)*(exp(1)^summary(reg.hdfe4,robust=TRUE)$coefficients[1,1]-1),1)
+
+sd.effect <- c("SD effect", paste0(as.character(sd.effect1),"\\%"),
+               paste0(as.character(sd.effect2),"\\%"), 
+               paste0(as.character(sd.effect3),"\\%"),
+               paste0(as.character(sd.effect4),"\\%"))
+
+
+```
+
+```{r reg_table,eval=TRUE, echo=FALSE, results='asis', warning=FALSE, message=FALSE}
+
+
+stargazer(reg.hdfe1,reg.hdfe2,reg.hdfe3,reg.hdfe4,
+          header = FALSE, type="latex", align = TRUE, keep.stat = c("n","rsq"), font.size = "tiny", 
+          label = "",se = list(robust.hdfe1,robust.hdfe2,robust.hdfe3), style = "qje",
+          covariate.labels = c("Risk-weight","log(exposure)"),
+          dep.var.labels = "log(Loan amount)", column.sep.width = "2pt",
+          column.labels   = c("IRB", "IRB","IRB", "SA"),
+          add.lines = list(c("Bank FE", "Yes", "Yes","Yes","Yes"),
+                           c("Time FE", "Yes", "-","-","-"),
+                           c("Loan FE", "No", "Yes","Yes","Yes"),
+                           sd.effect))
+
+```
+
+## Results 
+
+```{r hdfe_iv2,echo=FALSE}
+
+
+reg.hdfe1 <- felm(log(loan.amount)~ 1 | tranche.id +id |(risk_weight~ default_rate + mean.rw.host_dest)|0,
+                 data = subset(bank.df ,subset = approach == "IRB" & loan.amount>0))
+robust.hdfe1.s1 <- summary(reg.hdfe1$stage1,robust=TRUE)$coefficients[,2]
+robust.hdfe1 <- summary(reg.hdfe1,robust=TRUE)$coefficients[,2]
+sd.effect1 <- round(100*sd(rw$risk_weight)*(exp(1)^summary(reg.hdfe1,robust=TRUE)$coefficients[1,1]-1),1)
+
+F.test1 <- round(t(sapply(reg.hdfe1$stage1$lhs, function(lh) waldtest(reg.hdfe1$stage1, ~ default_rate | mean.rw.host_dest, lhs=lh)))[,5],1)
+
+reg.hdfe2 <- felm(log(loan.amount)~ log(exposure) | tranche.id +id |(risk_weight~ default_rate + mean.rw.host_dest)|0, 
+                  data = subset(bank.df ,subset = approach == "IRB" & loan.amount>0))
+robust.hdfe2.s1 <- summary(reg.hdfe2$stage1,robust=TRUE)$coefficients[,2]
+robust.hdfe2 <- summary(reg.hdfe2,robust=TRUE)$coefficients[,2]
+sd.effect2 <- round(100*sd(rw$risk_weight)*(exp(1)^summary(reg.hdfe2,robust=TRUE)$coefficients[2,1]-1),1)
+
+F.test2 <- round(t(sapply(reg.hdfe2$stage1$lhs, function(lh) waldtest(reg.hdfe2$stage1, ~ default_rate | mean.rw.host_dest, lhs=lh)))[,5],1)
+
+sd.effect <- c("SD effect", "",
+               paste0(as.character(sd.effect1),"\\%"),
+               "",
+               paste0(as.character(sd.effect2),"\\%"))
+F.test <- c("F-test",as.character(F.test1),"",
+            as.character(F.test2),"")
+
+```
+
+```{r reg_table_iv2,eval=TRUE, echo=FALSE, results='asis', warning=FALSE, message=FALSE}
+
+
+stargazer(reg.hdfe1$stage1,reg.hdfe1,reg.hdfe2$stage1,reg.hdfe2,
+          header = FALSE, type="latex", align = TRUE, keep.stat = c("n","f","rsq"), font.size = "tiny", 
+          label = "",se = list(robust.hdfe1.s1,robust.hdfe1,robust.hdfe2.s1,robust.hdfe2),
+          covariate.labels = c("Risk-weight","Default rate","Mean risk-weight","log(exposure)"),
+          order = c("risk_weight","default_rate","mean.rw.host_dest","log(exposure)"),
+          dep.var.labels = c("Risk-weight","log(Loan amount)","Risk-weight","log(Loan amount)"), style = "qje",
+          column.labels   = c("First stage", "Second stage","First stage", "Second stage"),
+          column.sep.width = "3pt",
+          add.lines = list(c("Bank FE", "Yes", "Yes","Yes","Yes"),
+                           c("Time FE", "Yes", "-","Yes","-"),
+                           c("Loan FE", "No", "Yes","No","Yes"),
+                           sd.effect,F.test))
+
+```
+
+## Results
+
+```{r hdfe_iv,echo=FALSE}
+
+
+iv.help <- bank.df %>%
+  subset(subset = approach == "IRB") %>%
+  distinct(eba,iso_code,period,.keep_all = TRUE)
+
+reg.hdfe1 <- felm(risk_weight~ default_rate + mean.rw.host_dest +log(exposure)  | period +id|0|0,
+                 data = iv.help)
+robust.hdfe1 <- summary(reg.hdfe1,robust=TRUE)$coefficients[,2]
+F.test1 <- round(t(sapply(reg.hdfe1$lhs, function(lh) waldtest(reg.hdfe1, ~ default_rate | mean.rw.host_dest, lhs=lh)))[,5],1)
+
+iv.help$rw.fv <- reg.hdfe1$fitted.values
+iv.help <- subset(iv.help,select = c("rw.fv","eba","iso_code","period"))
+bank.df <- merge(bank.df,iv.help,by=c("eba","iso_code","period"),all = TRUE)
+
+reg.hdfe2 <- felm(log(loan.amount)~ rw.fv +log(exposure) | tranche.id +id |0|0,
+                 data = subset(bank.df ,subset = approach == "IRB" & loan.amount>0))
+robust.hdfe2 <- summary(reg.hdfe2,robust=TRUE)$coefficients[,2]
+sd.effect2 <- round(100*sd(reg.hdfe1$fitted.values)*(exp(1)^summary(reg.hdfe2,robust=TRUE)$coefficients[1,1]-1),1)
+
+
+
+sd.effect <- c("SD effect", "",
+               paste0(as.character(sd.effect2),"\\%"))
+
+F.test <- c("F-test",as.character(F.test1),"")
+```
+
+```{r reg_table_iv,eval=TRUE, echo=FALSE, results='asis', warning=FALSE, message=FALSE}
+
+
+stargazer(reg.hdfe1,reg.hdfe2,
+          header = FALSE, type="latex", align = TRUE, keep.stat = c("n","f","rsq"), font.size = "tiny", 
+          label = "",se = list(robust.hdfe1,robust.hdfe2),
+          covariate.labels = c("Default rate","Mean risk-weight","Risk-weight","log(exposure)"),
+          dep.var.labels = c("Risk-weight","log(Loan amount)"), style = "qje",
+          column.labels   = c("First stage", "Second stage"),
+          column.separate = c(1, 1), column.sep.width = "5pt",
+          add.lines = list(c("Bank FE", "Yes", "Yes","Yes"),
+                           c("Time FE", "Yes", "-","-"),
+                           c("Loan FE", "No", "Yes","Yes"),
+                           sd.effect,F.test))
+
+```
+## Results
+
+```{r hdfe_iv3,echo=FALSE}
+
+
+iv.help <- bank.df %>%
+  subset(subset = approach == "IRB") %>%
+  distinct(eba,iso_code,period,.keep_all = TRUE)
+
+reg.hdfe1 <- felm(risk_weight~ default_rate  | 0|0|0,
+                 data = iv.help)
+robust.hdfe1 <- summary(reg.hdfe1,robust=TRUE)$coefficients[,2]
+F.test1 <- round(t(sapply(reg.hdfe1$lhs, function(lh) waldtest(reg.hdfe1, ~ default_rate, lhs=lh)))[,5],1)
+
+reg.hdfe2 <- felm(risk_weight~  mean.rw.host_dest   | 0|0|0,
+                 data = iv.help)
+robust.hdfe2 <- summary(reg.hdfe2,robust=TRUE)$coefficients[,2]
+F.test2 <- round(t(sapply(reg.hdfe2$lhs, function(lh) waldtest(reg.hdfe2, ~  mean.rw.host_dest, lhs=lh)))[,5],1)
+
+iv.help$rw.fv.default <- reg.hdfe1$fitted.values
+iv.help$rw.fv.manipulation <- reg.hdfe2$fitted.values
+
+iv.help <- subset(iv.help,select = c("rw.fv.default","rw.fv.manipulation","eba","iso_code","period"))
+bank.df <- merge(bank.df,iv.help,by=c("eba","iso_code","period"),all = TRUE)
+
+reg.hdfe3 <- felm(log(loan.amount)~ rw.fv.default+rw.fv.manipulation  | tranche.id +id |0|0,
+                 data = subset(bank.df ,subset = approach == "IRB" & loan.amount>0))
+robust.hdfe3 <- summary(reg.hdfe3,robust=TRUE)$coefficients[,2]
+sd.effect1 <- round(100*sd(reg.hdfe1$fitted.values)*(exp(1)^summary(reg.hdfe3,robust=TRUE)$coefficients[1,1]-1),1)
+sd.effect2 <- round(100*sd(reg.hdfe2$fitted.values)*(exp(1)^summary(reg.hdfe3,robust=TRUE)$coefficients[2,1]-1),1)
+
+
+
+sd.effect.risk <- c("SD effect (risk)", "","",
+               paste0(as.character(sd.effect1),"\\%"))
+sd.effect.avg <- c("SD effect (avg.)", "","",
+               paste0(as.character(sd.effect2),"\\%"))
+
+F.test <- c("F-test",as.character(F.test1),as.character(F.test1),"")
+```
+
+```{r reg_table_iv3,eval=TRUE, echo=FALSE, results='asis', warning=FALSE, message=FALSE}
+
+
+stargazer(reg.hdfe1,reg.hdfe2,reg.hdfe3,
+          header = FALSE, type="latex", align = TRUE, keep.stat = c("n","f","rsq"), font.size = "tiny", 
+          label = "",se = list(robust.hdfe1,robust.hdfe2,robust.hdfe3),
+          covariate.labels = c("Default rate","Mean risk-weight","Risk-weight (risk)","Risk-weight (avg.)"),
+          dep.var.labels = c("Risk-weight","log(Loan amount)"), style = "qje",
+          column.labels   = c("First stage", "Second stage"),
+          column.separate = c(2, 1), column.sep.width = "5pt",
+          add.lines = list(c("Bank FE", "No", "No","Yes"),
+                           c("Loan FE", "No", "No","Yes"),
+                           sd.effect.risk,sd.effect.avg,F.test))
+
+```
+
+
+## References
+\tiny

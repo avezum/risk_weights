@@ -20,7 +20,7 @@ my_packages <- c("tidyverse", "broom", "coefplot", "cowplot",
                  "gridExtra","here", "interplot", "margins", "maps",
                  "mapproj","mapdata", "MASS", "quantreg", "rlang",
                  "scales","survey", "srvyr", "viridis", "viridisLite",
-                 "devtools","xlsx","plm","stringr","lfe","robustHD","DescTools","stargazer")
+                 "devtools","xlsx","readxl","XLConnect","data.table","plm","stringr","lfe","robustHD","DescTools","stargazer")
 
 install.packages(my_packages, repos = "http://cran.rstudio.com")
 
@@ -31,6 +31,12 @@ install.packages(my_packages, repos = "http://cran.rstudio.com")
 ```{r setup, include=FALSE}
 ## Project set up 
 
+## Clean list
+rm(list = ls())
+
+options(java.parameters = "-Xmx4g" ) 
+
+
 ## By defult, show code for all chunks in the knitted document,
 ## as well as the output. To override for a particular chunk
 ## use echo = FALSE in its options.
@@ -39,24 +45,28 @@ knitr::opts_chunk$set(echo = TRUE)
 ## Set the default size of figures
 knitr::opts_chunk$set(fig.width=8, fig.height=5)  
 
+## Set working directory
+knitr::opts_knit$set(root.dir = ".")
+
+
 ## Load the libraries we will be using
 library(here)
 library(tidyverse)
 library(reshape2)
 library(stringr)
-library(xlsx)
+library(XLConnect)
+library(data.table)
 library(plm)
 library(lfe)
 library(DescTools)
 library(stargazer)
+library(stringdist)
 
 ```
 
-```{r load, include=FALSE}
-## Clean list
-rm(list = ls())
 
-## Load data
+```{r load_merge_EBA, include=FALSE}
+## Load
 credit_2017 <- read.csv("../../../../data/Financial/EBA-transparency_exercise/2017/tr_cre.csv")
 credit_2016 <- read.csv("../../../../data/Financial/EBA-transparency_exercise/2016/tr_cre.csv")
 credit_2015 <- read.csv("../../../../data/Financial/EBA-transparency_exercise/2015/tr_cre.csv")
@@ -70,6 +80,141 @@ credit_2015 <- plyr::rename(credit_2015,c("AMOUNT"="Amount","LEI_code"="LEI_Code
 credit <- rbind(credit_2017,credit_2016,credit_2015)
 ## Drop original files
 rm(credit_2017,credit_2015,credit_2016)
+
+```
+
+```{r id, include=FALSE}
+## Load table with change in indentifiers
+ID.df <- readWorksheetFromFile("../../../../data/Financial/EBA-transparency_exercise/2017/TR_Metadata.xlsx",1,startRow=2)
+
+## Create unique identifier
+ID.df <- tibble::rowid_to_column(ID.df, "ID")
+
+## Drop unused variables
+ID.df[,c("Finrep","Fin_year_end","Periods","TR_16","TR_15")] <- NULL
+
+## Turn data frame in long format
+ID.df <- melt(ID.df, id.vars = c("ID","Country","Desc_country","SSM","Name"),
+            variable.name = "index", 
+            value.name = "LEI_Code")
+
+## Remove variable created by long transformation
+ID.df[,c("index")] <- NULL
+
+## Remove duplicated observations and with missing values
+ID.df <- unique(ID.df)
+ID.df <- na.omit(ID.df)
+
+```
+
+```{r load_Dealscan_facility, include=FALSE}
+setwd("../../../../data/Financial/Dealscan/Dealscan_Raw/Facility/")
+## Load
+temp <-  list.files(pattern="*.xls")
+list <-  lapply(temp, readWorksheetFromFile,sheet = 1)
+facility.df <- rbindlist(list, use.names=TRUE)
+rm(list)
+```
+
+```{r load_Dealscan_tranche, include=FALSE}
+setwd("../../../../data/Financial/Dealscan/Dealscan_Raw/Tranche/")
+## Load
+temp <-  list.files(pattern="*.xls")
+list <-  lapply(temp, readWorksheetFromFile,sheet = 1)
+tranche.df <- rbindlist(list, use.names=TRUE)
+rm(list)
+```
+
+```{r load_Dealscan_deal, include=FALSE}
+setwd("../../../../data/Financial/Dealscan/Dealscan_Raw/Deal/")
+## Load
+temp <-  list.files(pattern="*.xls")
+list <-  lapply(temp, readWorksheetFromFile,sheet = 1)
+deal.df <- rbindlist(list, use.names=TRUE)
+rm(list)
+```
+
+
+```{r EBA_DealScan_identifier, include= FALSE}
+# Create data frames for names of each dataset
+EBA.name <- data.frame(ID.df$Name)
+names(EBA.name)[names(EBA.name)=="ID.df.Name"] = "name.EBA"
+EBA.name$name.EBA = as.character(EBA.name$name.EBA)
+EBA.name = unique(EBA.name) 
+
+DealScan.lender.name <- data.frame(facility.df$Lender.Name)
+names(DealScan.lender.name)[names(DealScan.lender.name)=="facility.df.Lender.Name"] = "name.DealScan"
+DealScan.parent.name <- data.frame(facility.df$Lender.Parent.Name)
+names(DealScan.parent.name)[names(DealScan.parent.name)=="facility.df.Lender.Parent.Name"] = "name.DealScan"
+
+DealScan.name <- rbind(DealScan.parent.name,DealScan.lender.name)
+DealScan.name$name.DealScan = as.character(DealScan.name$name.DealScan)
+DealScan.name = unique(DealScan.name) 
+rm(DealScan.lender.name,DealScan.parent.name)
+
+```
+
+```{r match_1, include= FALSE}
+# Match
+EBA.name$name.DealScan <- ""
+
+for(i in 1:dim(EBA.name)[1]) {
+ x <- agrep(EBA.name$name.EBA[i], DealScan.name$name.DealScan,
+ ignore.case=TRUE, value=TRUE,
+ max.distance = 0.05, useBytes = TRUE)
+ x <- paste0(x,"")
+ EBA.name$name.DealScan[i] <- x
+}
+
+```
+```{r match_2, include= FALSE}
+# Match
+DealScan.name$name.EBA <- ""
+
+for(i in 1:dim(DealScan.name)[1]) {
+ x <- agrep(DealScan.name$name.DealScan[i], EBA.name$name.EBA,
+ ignore.case=TRUE, value=TRUE,
+ max.distance = 0.05, useBytes = TRUE)
+ x <- paste0(x,"")
+ DealScan.name$name.EBA[i] <- x
+}
+
+```
+```{r match_3, include= FALSE}
+# Match
+start_time <- Sys.time()
+distance.methods<-c('osa')
+dist.methods<-list()
+for(m in 1:length(distance.methods))
+{
+  dist.name.matrix<-matrix(NA, ncol = length(DealScan.name$name.DealScan),nrow = length(EBA.name$name.EBA))
+  for(i in 1:length(DealScan.name$name.DealScan)) {
+    for(j in 1:length(EBA.name$name.EBA)) { 
+      dist.name.matrix[j,i]<-stringdist(tolower(DealScan.name[i,]),tolower(EBA.name[j,]),method = distance.methods[m])      
+    }  
+  }
+  dist.methods[[distance.methods[m]]]<-dist.name.matrix
+}
+ 
+match.s1.s2.matrix<-NULL
+for(m in 1:length(dist.methods))
+{
+ 
+  dist.matrix<-as.matrix(dist.methods[[distance.methods[m]]])
+  min.name.enh<-apply(dist.matrix, 1, base::min)
+  for(i in 1:nrow(dist.matrix))
+  {
+    s2.i<-match(min.name.enh[i],dist.matrix[i,])
+    s1.i<-i
+    match.s1.s2.matrix<-rbind(data.frame(s2.i=s2.i,s1.i=s1.i,s2name=DealScan.name[s2.i,], s1name=EBA.name[s1.i,], adist=min.name.enh[i],method=distance.methods[m]),match.s1.s2.matrix)
+  }
+}
+# Let's have a look at the results
+
+matched.names.matrix<-dcast(match.s1.s2.matrix,s2.i+s1.i+s2name+s1name~method, value.var = "adist")
+end_time <- Sys.time()
+
+print(end_time - start_time)
 
 ```
 
@@ -100,29 +245,7 @@ exposure.df <- mutate(exposure.df,Risk_exposure_adj = ifelse(is.na(Risk_exposure
 exposure.df <- mutate(exposure.df,Risk_weight = Risk_exposure_adj/Exposure_adj)
 
 ```
-```{r id, include=FALSE}
-## Load table with change in indentifiers
-ID.df <- read.xlsx("../../../../data/Financial/EBA-transparency_exercise/2017/TR_Metadata.xlsx",1,startRow=2)
 
-## Create unique identifier
-ID.df <- tibble::rowid_to_column(ID.df, "ID")
-
-## Drop unused variables
-ID.df[,c("Finrep","Fin_year_end","Periods","TR_16","TR_15")] <- NULL
-
-## Turn data frame in long format
-ID.df <- melt(ID.df, id.vars = c("ID","Country","Desc_country","SSM","Name"),
-            variable.name = "index", 
-            value.name = "LEI_Code")
-
-## Remove variable created by long transformation
-ID.df[,c("index")] <- NULL
-
-## Remove duplicated observations and with missing values
-ID.df <- unique(ID.df)
-ID.df <- na.omit(ID.df)
-
-```
 ```{r merge, include=FALSE}
 exposure.id.df <- merge(ID.df,exposure.df,by="LEI_Code")
 
@@ -189,11 +312,8 @@ p <- ggplot(data = subset(exposure.id.df,subset = approach_change_indicator == "
             mapping = aes(x = Risk_weight, fill = Approach, color = Approach)) 
 p + geom_density(alpha = 0.3) + ggtitle("Figure 1: Risk weights density")
 ```
-# Introduction
 
-The Basel II framework introduced the possibility for banks to use, upon approval by the supervisory agency, internal risk models (internal rating-based or IRB) to calculte the risk weights used for their capital adequacy ratio. The argument in favor of IRB versus the fixed risk weights standard approach (SA) is that the IRB approach would improve banks' efficiency as "banks optimize risk weights and better account for the specific risk of each asset" (@beltratti2016basel). @cucinelli2017credit also point to the risk models having improved with IRB implementation as those models have to be approved by regulators. \newline
 
-The difference in risk weights between the two approaches is significant. Figure 1 shows the density function of risk weights for corporate exposures. While risk weights under the SA approach are concentrated around 100%, they are more evenly distributed and concentrated at relatively lower values under IRB. These differences are expected to reflect *intended* heterogeneity in risk across banks' portfolios. If that is true, the IRB approach is a more efficient regulatory framework as it is flexible to each bank's risk exposure. \newline
 
 ```{r density_rw, echo=FALSE}
 
@@ -202,7 +322,7 @@ p <- ggplot(data = subset(exposure.id.df,subset = Risk_weight < 2),
 p + geom_density(alpha = 0.3) + ggtitle("Figure 1: Risk weights density")
 ```
 
-However, @dome2017comparability show that the location where banks are headquarted is a significant explanatory variable of risk weights across european banks. Within the Basel II framework, those differences driven by location are _unintended_ as they do not reflect heterogeneity in risk, but rather, suggest regulatory arbitrage. Figure 2 show distributions of risk weights for corporate exposures across headquarters and approaches (IRB and SA). The distributions differs considerably across headquarters. @dome2017comparability show that these differences are still meaningfull for several european countries after controlling for riskiness, destination of exposure and other control variables. \newline
+
 
 ```{r box_plot, echo=FALSE}
 
@@ -215,51 +335,16 @@ p + geom_boxplot() +
     ggtitle("Figure 2: Risk weights distribution by country")
 ```
 
-In this recent literature on capital adequacy risk weights, while some papers study the determinants of differences in risk weights across banks (@dome2017comparability, @beltratti2016basel and @montes2016impact) others focus on the impact of the IRB versus the SA approaches on lending. For example, @behn2016procyclical find that, in response to an exogenous shock to credit risk, banks decrease more lending under the IRB approach relative to the SA. Moreover, @behn2016limits show that banks underestimate risk for portfolios under the IRB while interest rate are higher, suggesting that banks are aware of the higher risks of those loans. \newline
+```{r box_plot, echo=FALSE}
 
-Our proposal is to fill the gap between these two lines of research. We want to study how _unintended_ differences in risk weights across IRB portfolios of European banks impact bank lending. More specifically, we want to test the following hypothesis: 
-
-**Hypothesis 1** *Ceteris paribus, banks with lower risk weights lend more.*
-
-We expect regulatory arbitrage on risk weights to create unintended competitive edge to banks headquarted in countries with more relaxed supervision.
-
-**Hypothesis 2** *Ceteris paribus, the effect of lower risk weights on lending is stronger for better capitalized banks.*
-
-If **Hypothesis 1** is true, then better capitalized banks should profit the most from regulatory arbitrage. When the capital requirement constrain is not biding, banks can choose how to better allocate their resource and explore the flexibility in regulation.   
-
-**Hypothesis 3** *Ceteris paribus, lower risk weights increase banks risk appetite.*
-
-In line with @behn2016limits, we expect banks to explore regulatory arbitrage by taking more risks for the same amount of capital.
-
-We believe the proposed study to be highly relevant for policy, as it will highlight adverse effects from the lack of policy coordination on bank capital regulation.
-
-# Data
-
-Regulatory information at the bank-level is publicly available with the EU-wide transparency exercises from the European Banking Authority. Those datasets contain information on assets and risk-weighted assets which can be use to derive risk weights. The information on exposures is divided by type (retail, corporate, government) and country (location of borrower). There are in total four exercises which contain variables for two periods each (December, 2012; June, 2013; December, 2014; June, 2015; December, 2015; June, 2016; December,2016 and June 2017). 132 European banks are included in the last exercise increasing from 64 in the first. Further bank level information, such as, balance sheet and cash flows items can be merged from the Orbis dataset from Bureau van Dijk. \newline
-
-However, bank-level information is not enough to draw meaningful comparisons. Banks have different risk profiles which are likely to be correlated to their risk weights. Hence, comparing banks' aggregate portfolios misses significant heterogeneity across assets. This heterogeneity could drive the results. Ideally, we would use a loan-level data with multiple observartions per borrower. With such dataset we can compare the exposure of several banks with different risk weights for the same borrower and effectively control for all the heterogeneity at the borrower level. \newline
-
-The syndicated loans market provides the necessary information for our study. In this market, several banks contributes with a share of the loan to the same borrowers. This feature allow us to compare the share of loans from banks with different risk weights to the same borrower. Importantly, apart from the share of loan, banks are exposed to the same terms and conditions. \newline
-
-However, a dataset of syndicated loans is still not available to researchers at Tilburg University. For this reason, this proposal inquiries about the possibility of acquiring such dataset. To our knowledge the LPC Dealscan from Thomson Reuters is the most comprehensive dataset on syndicated loans. It is already widely used for academic purpose (for example, @sufi2007information, @acharya2016real, @demirgucc2017foreign and @aldasoro2017syndicated). 
-
-There are two possibilities to acquire the dataset: via WRDS (a platform hosted by UPENN) or by Thomson Reuters LoanConnector service. The main differences between full access to Loanconnector and Dealscan via WRDS are:
-
-1. WRDS
-  + Updated once a month via CD
-  + The data contains loan terms and conditions 
-  + No information regarding ratings, secondary data, news or analytics 
-  + University-wide access
-  + 1.755,00 euros per month
- 
-2. Loanconnector's DealScan
-  + Updated once a day around midnight
-  + Contain secondary data, news, analytics and ratings information on both primary and secondary global loan markets
-  + Access to only 5 named end users
-  + Loanconnector for 5 users is 1.602,00 euros per month
-
-The minimum term for both options is 12 months. This quotation and information were obtained from a Thomsom Reuters salesperson in March 20, 2018.
- \newline
+p <- ggplot(data = subset(exposure.id.df,subset = Risk_weight < 2),
+            mapping = aes(x = reorder(Period, Risk_weight,FUN = median, na.rm=TRUE),
+                          y = Risk_weight,fill=Approach))
+p + geom_boxplot() +
+    labs(x=NULL) +
+    coord_flip() +
+    ggtitle("Figure 2: Risk weights distribution by year")
+```
 
 
 ```{r density_exp, echo=FALSE, include=FALSE}
@@ -325,8 +410,7 @@ summary(test_2)
 test_3 <- lm(log(Exposure)~Risk_weight+Default_rate,data=exposure.id.df)
 summary(test_3)
 ```
-## Preliminary results
- This section shows results using only data from the EU-wide transparency exercises. The analysis consists in comparing the exposure of banks with different risk weights to the same country. As we pointed out, this analysis does not account for asset heterogeneity within the same country which might be driving the results. Nevertheless, it gives an idea of the empirical strategy and expected results. Table 1 shows some summary statistics of the variables used. \newline
+
  
 ```{r summary_table,eval=TRUE, echo=FALSE, results='asis', warning=FALSE, message=FALSE}
 
@@ -335,11 +419,7 @@ stargazer(as.data.frame(exposure.id.df[c("Exposure","Risk_weight","Default_rate"
           title = "Summary statistics")
 ``` 
 
-In Column 1 of table 2 we regress the following equation: \newline
 
-$log(Exposure_{i,c,t})=\beta_0RW_{i,c,t}+\alpha_{i,t}+\alpha_{c,t}+\varepsilon_{i,c,t}$, \newline
-
-$Exposure_{i,c,t}$ is the total asset of bank $i$ in country $c$ at time $t$. $RW_{i,c,t}$ is the risk weight of an exposure of bank $i$ in country $c$ at time $t$. As expect the estimated coefficient for risk weights takes a negative value. One standard deviation increase in risk weight (0.32) reduces exposure by 31\%.\newline
 
 ```{r hdfe,echo=FALSE}
 reg.hdfe1 <- felm(log(Exposure)~Risk_weight  | ID:Period + Country.y:Period|0|ID,
